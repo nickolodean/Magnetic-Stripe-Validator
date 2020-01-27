@@ -8,6 +8,9 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Threading.Tasks;
+using System.Threading;
+
 
 namespace MagneticStripeValidation
 {
@@ -15,6 +18,8 @@ namespace MagneticStripeValidation
     {
         private Dictionary<int, Dictionary<int, string>> _storedData = new Dictionary<int, Dictionary<int, string>>();
         private List<GiftCard> _giftCards = new List<GiftCard>();
+        //private List<string> _trackData;
+        private Dictionary<string, int> _trackData = new Dictionary<string, int>();
         private int _trackDataKey = 0;
         private string _fileName = "";
         private string _logsRootFolder = @"C:\Services\Loyalty\GiftCard\Logs";
@@ -29,22 +34,20 @@ namespace MagneticStripeValidation
 
         private void BtnSelectFile_Click(object sender, EventArgs e)
         {
-            
-            string[] delimeters = TxtDelimeters.Text.Split('-');
 
             if (!string.IsNullOrEmpty(TxtDelimeters.Text))
             {
+                string delimeters = TxtDelimeters.Text;
                 OpenFileDialog selectedFile = new OpenFileDialog();
 
                 if (selectedFile.ShowDialog() == DialogResult.OK)
                 {
-                    Worker.RunWorkerAsync();
                     FileInfo file = new FileInfo(selectedFile.FileName);
                     LblFileName.Text = file.Name ;
                     _fileName = file.Name;
                     TxtStatus.Text += StoreData(selectedFile.FileName, delimeters);
-                    CheckStoredData();
-                    LoadGridView(_storedData);
+                    Worker.WorkerReportsProgress = true;
+                    Worker.RunWorkerAsync();
 
                     if (!Worker.IsBusy) Worker.CancelAsync();
                 }
@@ -119,9 +122,7 @@ namespace MagneticStripeValidation
                 }
             }
         }
-
-
-
+                     
 
 
 
@@ -130,13 +131,13 @@ namespace MagneticStripeValidation
 
 
         #region Custom Functions
-        
+
         /// <summary>
         /// Converting a string array to char array
         /// </summary>
         /// <param name="stringArray">Array of Strings</param>
         /// <returns></returns>
-        private char[] ConvertStringArray(string[] stringArray)
+        private char[] ConvertStringArray(string stringArray)
         {
             char[] charArray = new char[stringArray.Length];
             
@@ -153,7 +154,7 @@ namespace MagneticStripeValidation
         /// <param name="fileName">File that is being based on.</param>
         /// <param name="delimeters">The Delimeter of the file or the splitter of the data inside the file</param>
         /// <returns></returns>
-        private string StoreData(string fileName, string[] delimeters)
+        private string StoreData(string fileName, string delimeters)
         {
             int counter = 0;
             string errorMessage = "";
@@ -161,6 +162,8 @@ namespace MagneticStripeValidation
             Dictionary<int, Dictionary<int, string>> data = new Dictionary<int, Dictionary<int, string>>();
 
             _storedData.Clear();
+            _trackData.Clear();
+
             char[] convertedDelimeter = ConvertStringArray(delimeters);
 
             if ( lines.Length != 0)
@@ -174,8 +177,13 @@ namespace MagneticStripeValidation
                     {
                         info.Add(key, columns[key]);
 
+
                         if (columns[key].Contains("%B"))
+                        {
                             _trackDataKey = key;
+                            _trackData.Add(columns[key].Substring(0, columns[key].LastIndexOf('?') + 1), counter);
+                        }
+                            
                     }
 
                     data.Add(counter, info);
@@ -189,32 +197,70 @@ namespace MagneticStripeValidation
             return errorMessage;
         }
 
-        private void CheckStoredData()
+        private int CheckStoredData(BackgroundWorker worker, DoWorkEventArgs eventArgs)
         {
-            bool fileFound = false;
-
-            foreach (string directory in Directory.GetDirectories(_logsRootFolder))
+            int highestPercentageReached = 0;
+            if (worker.CancellationPending)
             {
-                foreach (string file in Directory.GetFiles(directory, "*" + _fileName + "*.*"))
+                eventArgs.Cancel = true;
+            }
+            else
+            {
+                int totalNumbers = 0;
+                int currentNumber = 0;
+                string[] directories = Directory.GetDirectories(_logsRootFolder);
+                totalNumbers = GetTotalLines(directories);
+
+                foreach (string directory in directories)
                 {
-                    string[] lines = File.ReadAllLines(file);
-
-                    if (lines.Length > 0)
+                    string[] files = Directory.GetFiles(directory, "*" + _fileName + "*.*");
+                    foreach (string file in files)
                     {
-                        for (int line = 0; line < lines.Length; line++)
+                        string[] lines = File.ReadAllLines(file);
+                        if (lines.Length > 0)
                         {
-                            Console.WriteLine(_storedData[line][3]);
-                            var scanned = _storedData.Where(data => data.Value[3].Contains(lines[line])).FirstOrDefault();
 
-                            if (scanned.Value.Count > 0)
-                                _storedData.Remove(scanned.Key);
+                            for (int line = 0; line < lines.Length; line++)
+                            {
+                                currentNumber++;
+                                decimal percentComplete = 0;
+                                percentComplete = (currentNumber / (decimal)(totalNumbers)) * 100;
+
+                                if (percentComplete > highestPercentageReached)
+                                {
+                                    highestPercentageReached = (int)percentComplete;
+                                    worker.ReportProgress((int)percentComplete);
+                                }
+                                string trackData = lines[line].Substring(lines[line].LastIndexOf('-') + 2);
+
+                                var foundData = _trackData.ContainsKey(trackData);
+                                if (foundData)
+                                {
+                                    _storedData.Remove(_trackData[trackData]);
+                                    _trackData.Remove(trackData);
+                                }
+                            }
                         }
-                        fileFound = true;
-                        break;
                     }
                 }
-                if (fileFound) break;
             }
+
+            return highestPercentageReached;
+        }
+
+        private int GetTotalLines(string[] directories)
+        {
+            int totalCount = 0;
+            foreach (string directory in directories)
+            {
+                string[] files = Directory.GetFiles(directory, "*" + _fileName + "*.*");
+                foreach (string file in files)
+                {
+                    string[] lines = File.ReadAllLines(file);
+                    totalCount += lines.Length;
+                }
+            }
+            return totalCount;
         }
 
 
@@ -298,7 +344,7 @@ namespace MagneticStripeValidation
                     error = ValidateMagstripeData(outTrackData);
                     if (error.Contains("Successfully"))
                     {
-                        if (outTrackData == trackData)
+                        if (outTrackData.Contains(trackData))
                         {
                             error += "Comparing Magstripe Success" + Environment.NewLine;
                             found = true;
@@ -307,7 +353,8 @@ namespace MagneticStripeValidation
                     }
                 }
             }
-            if (!found)
+
+            if (found == false)
                 error += "Magstripe data did not match on any Track Data from the file."+ Environment.NewLine;
             
             return error;
@@ -500,17 +547,32 @@ namespace MagneticStripeValidation
 
         private void Worker_DoWork(object sender, DoWorkEventArgs e)
         {
-
+            BackgroundWorker worker = sender as BackgroundWorker;
+            e.Result = CheckStoredData(worker, e);
         }
 
         private void Worker_ProgressChanged(object sender, ProgressChangedEventArgs e)
         {
-
+            TxtStatus.Text = "Checking Stored Data: " + e.ProgressPercentage.ToString() + "%";
         }
 
         private void Worker_RunWorkerCompleted(object sender, RunWorkerCompletedEventArgs e)
         {
-
+            if (e.Error != null)
+            {
+                MessageBox.Show(e.Error.Message);
+            }
+            else if (e.Cancelled)
+            {
+                TxtStatus.Text = "Canceled";
+            }
+            else
+            {
+                // Finally, handle the case where the operation 
+                // succeeded.
+                TxtStatus.Text = "Checking Complete! " + e.Result.ToString();
+                LoadGridView(_storedData);
+            }
         }
     }
 }
