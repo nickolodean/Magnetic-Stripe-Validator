@@ -1,0 +1,1 @@
+# Magnetic-Stripe-Validator
