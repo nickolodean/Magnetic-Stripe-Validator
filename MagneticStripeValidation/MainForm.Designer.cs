@@ -291,7 +291,7 @@
             // 
             this.panel4.Controls.Add(this.DGView);
             this.panel4.Dock = System.Windows.Forms.DockStyle.Bottom;
-            this.panel4.Location = new System.Drawing.Point(0, 466);
+            this.panel4.Location = new System.Drawing.Point(0, 496);
             this.panel4.Name = "panel4";
             this.panel4.Size = new System.Drawing.Size(795, 188);
             this.panel4.TabIndex = 17;
@@ -322,7 +322,7 @@
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 20F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.BackColor = System.Drawing.Color.White;
-            this.ClientSize = new System.Drawing.Size(795, 654);
+            this.ClientSize = new System.Drawing.Size(795, 684);
             this.Controls.Add(this.panel4);
             this.Controls.Add(this.panel3);
             this.Font = new System.Drawing.Font("Segoe UI", 11.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
